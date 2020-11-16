@@ -31,10 +31,14 @@ impl Vec3 {
     }
 
     pub fn length(self) -> f64 {
-        (self.x*self.x + self.y*self.y + self.z*self.z).sqrt()
+        self.length_squared().sqrt()
     }
 
-    fn unit_vec(self) -> Vec3 {
+    pub fn length_squared(self) -> f64 {
+        self.x*self.x + self.y*self.y + self.z*self.z
+    }
+
+    pub fn unit_vec(self) -> Vec3 {
         self / self.length()
     }
 }
@@ -47,27 +51,15 @@ impl std::ops::Neg for Vec3 {
     }
 }
 
-impl std::ops::Add<Vec3> for Vec3 {
-    type Output = Vec3;
+impl_op_ex!(+ |a: &Vec3, b: &Vec3| -> Vec3 { Vec3::new(a.x + b.x, a.y + b.y, a.z + b.z) });
 
-    fn add(self, rhs: Vec3) -> Vec3 {
-        Vec3::new(self.x + rhs.x, self.y + rhs.y, self.z + rhs.z)
-    }
-}
+impl_op_ex!(- |a: &Vec3, b: &Vec3| -> Vec3 { Vec3::new(a.x - b.x, a.y - b.y, a.z - b.z) });
 
 impl std::ops::AddAssign<Vec3> for Vec3 {
     fn add_assign(&mut self, rhs: Vec3) {
         self.x += rhs.x;
         self.y += rhs.y;
         self.z += rhs.z;
-    }
-}
-
-impl std::ops::Sub<Vec3> for Vec3 {
-    type Output = Vec3;
-
-    fn sub(self, rhs: Vec3) -> Vec3 {
-        Vec3::new(self.x - rhs.x, self.y - rhs.y, self.z - rhs.z)
     }
 }
 
@@ -79,13 +71,9 @@ impl std::ops::SubAssign<Vec3> for Vec3 {
     }
 }
 
-impl std::ops::Mul<f64> for Vec3 {
-    type Output = Vec3;
+impl_op_ex!(* |a: &Vec3, b: &f64| -> Vec3 { Vec3::new(a.x * b, a.y * b, a.z * b) });
 
-    fn mul(self, rhs: f64) -> Vec3 {
-        Vec3::new(self.x * rhs, self.y * rhs, self.z * rhs)
-    }
-}
+impl_op_ex!(* |a: &f64, b: &Vec3| -> Vec3 { b * a });
 
 impl std::ops::MulAssign<f64> for Vec3 {
     fn mul_assign(&mut self, rhs: f64) {
@@ -95,21 +83,9 @@ impl std::ops::MulAssign<f64> for Vec3 {
     }
 }
 
-impl std::ops::Mul<Vec3> for Vec3 {
-    type Output = Vec3;
+impl_op_ex!(* |a: &Vec3, b: &Vec3| -> Vec3 { Vec3::new(a.x * b.x, a.y * b.y, a.z * b.z) });
 
-    fn mul(self, rhs: Vec3) -> Vec3 {
-        Vec3::new(self.x * rhs.x, self.y * rhs.y, self.z * rhs.z)
-    }
-}
-
-impl std::ops::Div<f64> for Vec3 {
-    type Output = Vec3;
-
-    fn div(self, rhs: f64) -> Vec3 {
-        Vec3::new(self.x / rhs, self.y / rhs, self.z / rhs)
-    }
-}
+impl_op_ex!(/ |a: &Vec3, b: &f64| -> Vec3 { Vec3::new(a.x / b, a.y / b, a.z / b) });
 
 impl std::ops::DivAssign<f64> for Vec3 {
     fn div_assign(&mut self, rhs: f64) {
