@@ -3,12 +3,12 @@ use crate::ray::Ray;
 use crate::vec3::{Point,Vec3};
 
 pub struct Sphere {
-    center: Point,
-    radius: f64,
+    pub center: Point,
+    pub radius: f64,
 }
 
 impl Hittable for Sphere {
-    fn hit(self, r: &Ray, t_min: f64, t_max: f64) -> Option<HitRecord> {
+    fn hit(&self, r: &Ray, t_min: f64, t_max: f64) -> Option<HitRecord> {
         let oc: Vec3 = r.origin - self.center;
         let a = r.dir.length_squared();
         let half_b = oc.dot(&r.dir);
@@ -29,7 +29,11 @@ impl Hittable for Sphere {
             let t = root;
             let p = r.at(t);
             let normal = (p - self.center) / self.radius;
-            Some(HitRecord{p, normal, t})
+            let front_face = false; // placeholder value
+            let mut rec = HitRecord{p, normal, t, front_face};
+            let outward_normal = (rec.p - self.center) / self.radius;
+            rec.set_face_normal(r, &outward_normal);
+            Some(rec)
         }
     }
 }

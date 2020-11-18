@@ -1,8 +1,11 @@
 #[macro_use] extern crate auto_ops;
 extern crate pixels;
 extern crate winit;
+extern crate rand;
+extern crate rayon;
 
 use pixels::{Error, Pixels, SurfaceTexture};
+use rand::distributions::{Distribution, Uniform};
 use winit::dpi::LogicalSize;
 use winit::event::{Event, VirtualKeyCode};
 use winit::event_loop::{ControlFlow, EventLoop};
@@ -10,12 +13,16 @@ use winit::window::WindowBuilder;
 use winit_input_helper::WinitInputHelper;
 
 
+mod fps;
 mod hittable;
 mod ray;
 mod vec3;
 mod sphere;
 
+use hittable::Hittable;
+use hittable::HittableList;
 use ray::Ray;
+use sphere::Sphere;
 use vec3::Vec3;
 use vec3::Color;
 use vec3::Point;
@@ -23,57 +30,82 @@ use vec3::Point;
 const ASPECT_RATIO: f64 = 16. / 9.;
 const WIDTH: u32 = 400;
 const HEIGHT: u32 = (WIDTH as f64 / ASPECT_RATIO) as u32;
+const SAMPLES_PER_PIXEL: u32 = 100;
 
-fn ray_color(ray: &Ray) -> Color {
-    let t = hit_sphere(&Point::new(0., 0., -1.), 0.5, ray);
-    if t > 0. {
-        let n = (ray.at(t) - Vec3::new(0., 0., -1.)).unit_vec();
-        0.5*Color::new(n.x+1., n.y+1., n.z+1.)
+struct Camera {
+    origin: Point,
+    horizontal: Vec3,
+    vertical: Vec3,
+    upper_left_corner: Point,
+}
+
+impl Camera {
+    fn new() -> Camera {
+        let height = 2.;
+        let width = ASPECT_RATIO * height;
+        let focal_length = 1.;
+        let origin = Point::zeros();
+        let horizontal = Vec3::new(width, 0., 0.);
+        let vertical = Vec3::new(0., height, 0.);
+        let upper_left_corner = origin - horizontal/2. + vertical/2. - Vec3::new(0., 0., focal_length);
+        Camera{origin, horizontal, vertical, upper_left_corner}
+    }
+    
+    fn get_ray(&self, x: f64, y: f64) -> Ray {
+        Ray::new(self.origin, self.upper_left_corner + self.horizontal*x - self.vertical*y)
+    }
+}
+
+fn ray_color(world: &HittableList, ray: &Ray) -> Color {
+    if let Some(hit_record) = world.hit(ray, 0., f64::INFINITY) {
+        0.5 * (hit_record.normal + Color::new(1., 1., 1.))
     } else {
-        let unit_direction = Vec3::unit_vec(ray.dir);
+        let unit_direction = Vec3::unit_vec(&ray.dir);
         let t = 0.5 * (unit_direction.y + 1.0);
         Color::new(1.0, 1.0, 1.0) * (1.0 - t) + Color::new(0.5, 0.7, 1.0) * t
     }
 }
-            
 
-fn hit_sphere(center: &Point, radius: f64, ray: &Ray) -> f64 {
-    let oc: Vec3 = ray.origin - center;
-    let a = ray.dir.length_squared();
-    let half_b = oc.dot(&ray.dir);
-    let c = oc.length_squared() - radius*radius;
-    let discriminant = half_b*half_b - a*c;
-    if discriminant < 0. {
-        -1.
-    } else {
-        (-half_b - discriminant.sqrt()) / a
+fn draw_pixels(world: &HittableList, camera: &Camera, pixel_chunk: &mut [(usize, &mut [u8])]) {
+    let between = Uniform::new(0., 1.);
+    let mut rng = rand::thread_rng();
+    for (i, pixel) in pixel_chunk {
+        let mut color = Color::zeros();
+        for _ in 0..SAMPLES_PER_PIXEL {
+            let i = *i as u32;
+            let x = ((i % WIDTH) as f64 + between.sample(&mut rng)) / (WIDTH as f64);
+            let y = ((i / WIDTH) as f64) / (HEIGHT as f64);
+            let ray = camera.get_ray(x, y);
+            color += ray_color(world, &ray);
+        }
+        color *= 1. / (SAMPLES_PER_PIXEL as f64);
+        let color = color.clamped(0., 0.999) * 256.;
+        let rgba = [color[0] as u8, color[1] as u8, color[2] as u8, 0xff];
+        pixel.copy_from_slice(&rgba);
     }
 }
 
-fn draw(frame: &mut [u8]) {
-   // Camera
-   let viewport_height: f64 = 2.0;
-   let viewport_width: f64 = ASPECT_RATIO * viewport_height;
-   let focal_length: f64 = 1.0;
-
-   let origin = vec3::Point::zeros();
-   let horizontal = Vec3::new(viewport_width, 0., 0.);
-   let vertical = Vec3::new(0., viewport_height, 0.);
-   let upper_left_corner = origin - horizontal/2. + vertical/2. - Vec3::new(0., 0., focal_length);
-
-   // Render
-   for (i, pixel) in frame.chunks_exact_mut(4).enumerate() {
-       let i = i as u32;
-       let x = ((i % WIDTH) as f64) / (WIDTH as f64);
-       let y = ((i / WIDTH) as f64) / (HEIGHT as f64);
-       let ray = Ray::new(origin, upper_left_corner + horizontal*x - vertical*y);
-       let color = ray_color(&ray) * 256.;
-       let rgba = [color[0] as u8, color[1] as u8, color[2] as u8, 0xff];
-       pixel.copy_from_slice(&rgba);
-   }
+fn draw(world: &HittableList, camera: &Camera, frame: &mut [u8]) {
+    let mut pixel_list: Vec<(usize, &mut [u8])> = frame.chunks_exact_mut(4).enumerate().collect();
+    let num_threads: usize = 12;
+    // TODO: does this need to be adjusted, e.g. what if it's a 4x2 image but num_threads is 3?
+    let chunk_size = pixel_list.len() / num_threads;
+    rayon::scope(|s| {
+        for chunk in pixel_list.chunks_exact_mut(chunk_size) {
+            s.spawn(move |_| {
+                draw_pixels(world, camera, chunk);
+            });
+        }
+    });
 }
 
 fn main() -> Result<(), Error>{
+    // World
+    let mut objects: Vec<Box<dyn Hittable + Send + Sync>> = Vec::new();
+    objects.push(Box::new(Sphere{center: Point::new(0., 0., -1.), radius: 0.5}));
+    objects.push(Box::new(Sphere{center: Point::new(0., -100.5, -1.), radius: 100.}));
+    let world = HittableList::new(objects);
+    
 
     // Window 
     let event_loop = EventLoop::new();
@@ -95,16 +127,21 @@ fn main() -> Result<(), Error>{
         Pixels::new(WIDTH, HEIGHT, surface_texture)?
     };
 
+    // Camera 
+    let mut camera = Camera::new();
+
+    // Timer
+    let mut timer = fps::timer();
+
     // Event Loop
     event_loop.run(move |event, _, control_flow| {
         // Draw the current frame
         if let Event::RedrawRequested(_) = event {
-            draw(pixels.get_frame());
-            if pixels
-                .render()
-                .map_err(|e| println!("pixels.render() failed: {}", e))
-                .is_err()
-            {
+            timer.start();
+            draw(&world, &camera, pixels.get_frame());
+            timer.stop();
+            timer.print_stats();
+            if pixels.render().map_err(|e| println!("pixels.render() failed: {}", e)).is_err() {
                 *control_flow = ControlFlow::Exit;
                 return;
             }
@@ -112,6 +149,20 @@ fn main() -> Result<(), Error>{
 
         // Handle input events
         if input.update(&event) {
+            // Navigation
+            if input.key_pressed(VirtualKeyCode::W) {
+                camera.origin.z += -0.1;
+            }
+            if input.key_pressed(VirtualKeyCode::S) {
+                camera.origin.z += 0.1;
+            }
+            if input.key_pressed(VirtualKeyCode::A) {
+                camera.origin.x -= 0.1;
+            }
+            if input.key_pressed(VirtualKeyCode::D) {
+                camera.origin.x += 0.1;
+            }
+
             // Close events
             if input.key_pressed(VirtualKeyCode::Escape) || input.quit() {
                 *control_flow = ControlFlow::Exit;

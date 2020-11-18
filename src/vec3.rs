@@ -8,6 +8,7 @@ pub struct Vec3 {
 pub type Point = Vec3;
 pub type Color = Vec3;
 
+
 #[allow(dead_code)]
 impl Vec3 {
     pub fn zeros() -> Vec3 {
@@ -30,17 +31,27 @@ impl Vec3 {
         }
     }
 
-    pub fn length(self) -> f64 {
+    pub fn length(&self) -> f64 {
         self.length_squared().sqrt()
     }
 
-    pub fn length_squared(self) -> f64 {
+    pub fn length_squared(&self) -> f64 {
         self.x*self.x + self.y*self.y + self.z*self.z
     }
 
-    pub fn unit_vec(self) -> Vec3 {
+    pub fn unit_vec(&self) -> Vec3 {
         self / self.length()
     }
+
+    pub fn clamped(self, min: f64, max: f64) -> Vec3 {
+        Vec3::new(clamp(self.x, min, max), clamp(self.y, min, max), clamp(self.z, min, max))
+    }
+}
+
+fn clamp(x: f64, min: f64, max: f64) -> f64 {
+    if x < min { min }
+    else if x > max { max }
+    else { x }
 }
 
 impl std::ops::Neg for Vec3 {
