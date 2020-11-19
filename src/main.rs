@@ -12,15 +12,16 @@ use winit::event_loop::{ControlFlow, EventLoop};
 use winit::window::WindowBuilder;
 use winit_input_helper::WinitInputHelper;
 
-
 mod fps;
 mod hittable;
+mod material;
 mod ray;
 mod vec3;
 mod sphere;
 
 use hittable::Hittable;
 use hittable::HittableList;
+use material::{Lambertian, Metal};
 use ray::Ray;
 use sphere::Sphere;
 use vec3::Vec3;
@@ -28,9 +29,10 @@ use vec3::Color;
 use vec3::Point;
 
 const ASPECT_RATIO: f64 = 16. / 9.;
-const WIDTH: u32 = 400;
+const WIDTH: u32 = 1200;
 const HEIGHT: u32 = (WIDTH as f64 / ASPECT_RATIO) as u32;
 const SAMPLES_PER_PIXEL: u32 = 100;
+const MAX_RAY_DEPTH: usize = 50;
 
 struct Camera {
     origin: Point,
@@ -56,9 +58,15 @@ impl Camera {
     }
 }
 
-fn ray_color(world: &HittableList, ray: &Ray) -> Color {
-    if let Some(hit_record) = world.hit(ray, 0., f64::INFINITY) {
-        0.5 * (hit_record.normal + Color::new(1., 1., 1.))
+fn ray_color(world: &HittableList, ray: &Ray, depth: usize) -> Color {
+    if depth == 0 {
+        Color::zeros()
+    } else if let Some(hit_record) = world.hit(ray, 0.001, f64::INFINITY) {
+        if let Some((scattered, attenuation)) = hit_record.material.scatter(ray, &hit_record) {
+            attenuation * ray_color(world, &scattered, depth - 1)
+        } else {
+            Color::zeros()
+        }
     } else {
         let unit_direction = Vec3::unit_vec(&ray.dir);
         let t = 0.5 * (unit_direction.y + 1.0);
@@ -76,9 +84,13 @@ fn draw_pixels(world: &HittableList, camera: &Camera, pixel_chunk: &mut [(usize,
             let x = ((i % WIDTH) as f64 + between.sample(&mut rng)) / (WIDTH as f64);
             let y = ((i / WIDTH) as f64) / (HEIGHT as f64);
             let ray = camera.get_ray(x, y);
-            color += ray_color(world, &ray);
+            color += ray_color(world, &ray, MAX_RAY_DEPTH);
         }
-        color *= 1. / (SAMPLES_PER_PIXEL as f64);
+        // Divide the color by the number of samples and gamma-correct for gamma=2.0.
+        let scale = 1. / (SAMPLES_PER_PIXEL as f64);
+        color.x = (scale * color.x).sqrt();
+        color.y = (scale * color.y).sqrt();
+        color.z = (scale * color.z).sqrt();
         let color = color.clamped(0., 0.999) * 256.;
         let rgba = [color[0] as u8, color[1] as u8, color[2] as u8, 0xff];
         pixel.copy_from_slice(&rgba);
@@ -87,7 +99,7 @@ fn draw_pixels(world: &HittableList, camera: &Camera, pixel_chunk: &mut [(usize,
 
 fn draw(world: &HittableList, camera: &Camera, frame: &mut [u8]) {
     let mut pixel_list: Vec<(usize, &mut [u8])> = frame.chunks_exact_mut(4).enumerate().collect();
-    let num_threads: usize = 12;
+    let num_threads: usize = 16;
     // TODO: does this need to be adjusted, e.g. what if it's a 4x2 image but num_threads is 3?
     let chunk_size = pixel_list.len() / num_threads;
     rayon::scope(|s| {
@@ -101,11 +113,18 @@ fn draw(world: &HittableList, camera: &Camera, frame: &mut [u8]) {
 
 fn main() -> Result<(), Error>{
     // World
+    let material_ground = Box::new(Lambertian::new(Color::new(0.8, 0.8, 0.0)));
+    let material_center = Box::new(Lambertian::new(Color::new(0.7, 0.3, 0.3)));
+    let material_left = Box::new(Metal::new(Color::new(0.8, 0.8, 0.8)));
+    let material_right = Box::new(Metal::new(Color::new(0.8, 0.6, 0.2)));
+
     let mut objects: Vec<Box<dyn Hittable + Send + Sync>> = Vec::new();
-    objects.push(Box::new(Sphere{center: Point::new(0., 0., -1.), radius: 0.5}));
-    objects.push(Box::new(Sphere{center: Point::new(0., -100.5, -1.), radius: 100.}));
+    objects.push(Box::new(Sphere::new( 0.0, -100.5, -1.0, 100.0, material_ground)));
+    objects.push(Box::new(Sphere::new( 0.0,    0.0, -1.0,   0.5, material_center)));
+    objects.push(Box::new(Sphere::new(-1.0,    0.0, -1.0,   0.5, material_left)));
+    objects.push(Box::new(Sphere::new( 1.0,    0.0, -1.0,   0.5, material_right)));
+
     let world = HittableList::new(objects);
-    
 
     // Window 
     let event_loop = EventLoop::new();
@@ -152,15 +171,19 @@ fn main() -> Result<(), Error>{
             // Navigation
             if input.key_pressed(VirtualKeyCode::W) {
                 camera.origin.z += -0.1;
+                window.request_redraw();
             }
             if input.key_pressed(VirtualKeyCode::S) {
                 camera.origin.z += 0.1;
+                window.request_redraw();
             }
             if input.key_pressed(VirtualKeyCode::A) {
                 camera.origin.x -= 0.1;
+                window.request_redraw();
             }
             if input.key_pressed(VirtualKeyCode::D) {
                 camera.origin.x += 0.1;
+                window.request_redraw();
             }
 
             // Close events
@@ -173,9 +196,6 @@ fn main() -> Result<(), Error>{
             if let Some(size) = input.window_resized() {
                 pixels.resize(size.width, size.height);
             }
-
-            // Update internal state and request a redraw
-            window.request_redraw();
         }
     });
 }

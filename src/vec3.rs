@@ -1,3 +1,5 @@
+use rand::distributions::{Distribution, Uniform};
+
 #[derive(Copy, Clone, Debug, PartialEq, PartialOrd)]
 pub struct Vec3 {
     pub x: f64,
@@ -46,6 +48,44 @@ impl Vec3 {
     pub fn clamped(self, min: f64, max: f64) -> Vec3 {
         Vec3::new(clamp(self.x, min, max), clamp(self.y, min, max), clamp(self.z, min, max))
     }
+
+    pub fn random(min: f64, max: f64) -> Vec3 {
+        let u = Uniform::new(min, max);
+        let mut rng = rand::thread_rng();
+        Vec3::new(u.sample(&mut rng), u.sample(&mut rng), u.sample(&mut rng))
+    }
+
+    pub fn random_in_unit_sphere() -> Vec3 {
+        loop {
+            let p = Vec3::random(-1., 1.); 
+            if p.length_squared() >= 1. {
+                continue
+            }
+            return p
+        }
+    }
+
+    pub fn random_unit_vector() -> Vec3 {
+        return Vec3::random_in_unit_sphere().unit_vec()
+    }
+
+    pub fn random_in_hemisphere(normal: &Vec3) -> Vec3 {
+        let in_unit_sphere = Vec3::random_in_unit_sphere();
+        if in_unit_sphere.dot(normal) > 0.0 {
+            in_unit_sphere
+        } else {
+            -in_unit_sphere
+        }
+    }
+
+    pub fn near_zero(&self) -> bool {
+        let eps = 1e-8;
+        self[0].abs() < eps && self[1].abs() < eps && self[2].abs() < eps
+    }
+}
+
+pub fn reflect(v: &Vec3, n: &Vec3) -> Vec3 {
+    v - 2.*v.dot(n)*n
 }
 
 fn clamp(x: f64, min: f64, max: f64) -> f64 {
