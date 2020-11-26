@@ -27,9 +27,9 @@ impl Hittable for Sphere {
         } else {
             let sqrt_d = discriminant.sqrt();
 
-            let root = (-half_b - sqrt_d) / a;
+            let mut root = (-half_b - sqrt_d) / a;
             if root < t_min || root > t_max {
-                let root = (-half_b + sqrt_d) / a;
+                root = (-half_b + sqrt_d) / a;
                 if root < t_min || root > t_max {
                     return None
                 }
@@ -38,7 +38,7 @@ impl Hittable for Sphere {
             let p = r.at(t);
             let normal = (p - self.center) / self.radius;
             let front_face = false; // placeholder value
-            let mut rec = HitRecord{p, normal, t, front_face, material: &*self.material};
+            let mut rec = HitRecord{p, normal, t, front_face, material: self.material.as_ref()};
             let outward_normal = (rec.p - self.center) / self.radius;
             rec.set_face_normal(r, &outward_normal);
             Some(rec)

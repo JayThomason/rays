@@ -88,19 +88,21 @@ pub fn reflect(v: &Vec3, n: &Vec3) -> Vec3 {
     v - 2.*v.dot(n)*n
 }
 
+pub fn refract(uv: &Vec3, n: &Vec3, etai_over_etat: f64) -> Vec3 {
+    let cos_theta = (uv.dot(&-n)) / (uv.length()*n.length()).min(1.);
+//    let cos_theta = (-uv).dot(n).min(1.);
+    let r_out_perp = etai_over_etat * (uv + cos_theta*n);
+    let r_out_parallel = -((1.0 - r_out_perp.length_squared()).abs().sqrt()) * n;
+    (r_out_perp + r_out_parallel).unit_vec()
+}
+
 fn clamp(x: f64, min: f64, max: f64) -> f64 {
     if x < min { min }
     else if x > max { max }
     else { x }
 }
 
-impl std::ops::Neg for Vec3 {
-    type Output = Vec3;
-
-    fn neg(self) -> Vec3 {
-        Vec3::new(-self.x, -self.y, -self.z)
-    }
-}
+impl_op_ex!(- |a: &Vec3| -> Vec3 { Vec3::new(-a.x, -a.y, -a.z) });
 
 impl_op_ex!(+ |a: &Vec3, b: &Vec3| -> Vec3 { Vec3::new(a.x + b.x, a.y + b.y, a.z + b.z) });
 
@@ -239,5 +241,26 @@ mod tests {
         let a = Vec3::new(0., 1., 2.);
         let b = Vec3::new(2., 1., 0.);
         assert_eq!(a.cross(&b), Vec3::new(-2., 4., 2.));
+    }
+
+    #[test]
+    fn test_refract() {
+        // straight on rays should go straight through regardless of IR
+        let uv = Vec3::new(1., 0., 0.);
+        let n = Vec3::new(-1., 0., 0.);
+        assert_eq!(refract(&uv, &n, 1.), uv);
+
+        let uv = Vec3::new(1., 0., 0.);
+        let n = Vec3::new(-1., 0., 0.);
+        assert_eq!(refract(&uv, &n, 0.1), uv);
+
+        let uv = Vec3::new(1., 0., 0.);
+        let n = Vec3::new(-1., 0., 0.);
+        assert_eq!(refract(&uv, &n, 10.), uv);
+
+        // IR = 1.0 should go straight through
+        let uv = Vec3::new(1., 1., 0.);
+        let n = Vec3::new(1., 0., 0.);
+        assert_eq!(refract(&uv, &n, 1.), uv);
     }
 }
